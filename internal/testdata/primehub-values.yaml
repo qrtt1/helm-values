@@ -1,0 +1,1088 @@
+primehub:
+  mode: ce
+  scheme: http
+  keycloak:
+    ## Only used when 'keycloak.deploy' is false
+    scheme: http
+    domain:
+    #port:
+    username: keycloak
+    password:
+    #svcUrl: http://keycloak-http.default/auth
+
+    realm: primehub
+    everyoneGroupId:
+    clientId: admin-ui
+    #rolePrefix:
+    #maxSockets:
+    #maxFreeSockets:
+  sharedVolumeStorageClass: ""
+  grantSudo: true
+
+ingress:
+  enabled: true
+  annotations:
+    ingress.kubernetes.io/affinity: cookie
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+  hosts:
+    - chart-example.local
+  tls: []
+
+# Keycloak
+keycloak:
+  deploy: true
+  image:
+    repository: jboss/keycloak
+    tag: 8.0.1
+    pullPolicy: IfNotPresent
+  persistence:
+    deployPostgres: true
+    dbVendor: postgres
+    dbName: keycloak
+    dbHost: mykeycloak
+    dbPort: 5432
+    existingSecret: ""
+    existingSecretPasswordKey: ""  # read keycloak db password from existingSecret under this Key
+    existingSecretUsernameKey: ""  # read keycloak db user from existingSecret under this Key
+    dbUser: keycloak
+    dbPassword:
+  postgresql:
+    image:
+      registry: docker.io
+      repository: bitnami/postgresql
+      tag: 11.5.0-debian-9-r60
+      pullPolicy: IfNotPresent
+      debug: false
+    service:
+      type: ClusterIP
+      port: 5432
+      annotations: {}
+    postgresqlUsername: postgres
+    master:
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      podLabels: {}
+      podAnnotations: {}
+      extraVolumeMounts: []
+      extraVolumes: []
+    updateStrategy:
+      type: RollingUpdate
+    livenessProbe:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    readinessProbe:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+    metrics:
+      enabled: false
+    securityContext:
+      enabled: true
+      fsGroup: 1001
+      runAsUser: 1001
+    serviceAccount:
+      enabled: false
+    volumePermissions:
+      enabled: true
+      image:
+        registry: docker.io
+        repository: bitnami/minideb
+        tag: stretch
+      securityContext:
+        runAsUser: 0
+    persistence:
+      enabled: true
+      mountPath: /bitnami/postgresql
+      subPath: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 8Gi
+      annotations: {}
+  service:
+    annotations: {}
+    labels: {}
+    type: ClusterIP
+    httpPort: 80
+    httpNodePort: ""
+    httpsPort: 8443
+    httpsNodePort: ""
+    jgroupsPort: 7600
+  existingSecretKey: password
+  jgroups:
+    discoveryProtocol: dns.DNS_PING
+    discoveryProperties: >
+      "dns_query={{ template "keycloak.fullname" . }}-headless.{{ .Release.Namespace }}.svc.{{ .Values.keycloak.clusterDomain }}"
+  extraEnv: |
+    - name: PROXY_ADDRESS_FORWARDING
+      value: "true"
+  livenessProbe: |
+    httpGet:
+      path: {{ if ne .Values.keycloak.basepath "" }}/{{ .Values.keycloak.basepath }}{{ end }}/
+      port: http
+    initialDelaySeconds: 300
+    timeoutSeconds: 5
+  readinessProbe: |
+    httpGet:
+      path: {{ if ne .Values.keycloak.basepath "" }}/{{ .Values.keycloak.basepath }}{{ end }}/realms/master
+      port: http
+    initialDelaySeconds: 30
+    timeoutSeconds: 1
+  restartPolicy: Always
+  podManagementPolicy: Parallel
+
+  prometheus:
+    operator:
+      enabled: false
+      serviceMonitor:
+        namespace: ""
+        selector:
+          release: prometheus
+        interval: 10s
+        scrapeTimeout: 10s
+        path: /auth/realms/master/metrics
+      prometheusRules:
+        enabled: false
+        selector:
+          app: prometheus-operator
+          release: prometheus
+        rules: {}
+  clusterDomain: cluster.local
+  init:
+    image:
+      repository: busybox
+      tag: 1.31
+      pullPolicy: IfNotPresent
+    resources: {}
+  username: keycloak
+  password:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  serviceAccount:
+    create: false
+  securityContext:
+    fsGroup: 1000
+  containerSecurityContext:
+    runAsUser: 1000
+    runAsNonRoot: true
+  basepath: auth
+  cli:
+    enabled: true
+    nodeIdentifier: |
+      {{ .Files.Get "scripts/keycloak/node-identifier.cli" }}
+
+    logging: |
+      {{ .Files.Get "scripts/keycloak/logging.cli" }}
+
+    ha: |
+      {{ .Files.Get "scripts/keycloak/ha.cli" }}
+
+    datasource: |
+      {{ .Files.Get "scripts/keycloak/datasource.cli" }}
+
+    custom: |
+
+  theme:
+    image: infuseai/primehub-keycloak-theme:e1e29f10
+    packages: []
+  extraInitContainers: |
+    - name: theme-provider
+      image: {{ .Values.keycloak.theme.image }}
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+      args:
+        - -c
+        - |
+          echo "Copying theme..."
+          cp -R /primehub/* /theme-primehub/
+          {{- range $package := .Values.keycloak.theme.packages }}
+          cp -R /{{ $package }}/* /theme-{{ $package }}/
+          {{- end }}
+      volumeMounts:
+        - name: theme-primehub
+          mountPath: /theme-primehub
+        {{- range $package := .Values.keycloak.theme.packages }}
+        - name: theme-{{ $package }}
+          mountPath: /theme-{{ $package }}
+        {{- end }}
+
+  extraVolumeMounts: |
+    - name: theme-primehub
+      mountPath: /opt/jboss/keycloak/themes/primehub
+    {{- range $package := .Values.keycloak.theme.packages }}
+    - name: theme-{{ $package }}
+      mountPath: /opt/jboss/keycloak/themes/{{ $package }}
+    {{- end }}
+
+  extraVolumes: |
+    - name: theme-primehub
+      emptyDir: {}
+    {{- range $package := .Values.keycloak.theme.packages }}
+    - name: theme-{{ $package }}
+      emptyDir: {}
+    {{- end }}
+
+# Metacontroller
+metacontroller:
+  deploy: true
+  replicas: 1
+  image:
+    repository: metacontroller/metacontroller
+    tag: 0.2
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 50m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  webhook:
+    replicas: 1
+    image:
+      repository: metacontroller/jsonnetd
+      tag: 0.1
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 50m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+# Primehub console
+console:
+  enableUserPortal: true
+  replicas: 1
+  reloaderImage:
+    repository: busybox
+    pullPolicy: IfNotPresent
+    tag: 1.31
+  image:
+    repository: infuseai/primehub-console
+    tag: latest
+    # pullPolicy: IfNotPresent
+    # credentials:
+    #   registry: registry.gitlab.com
+    #   username:
+    #   password:
+
+  url: https://example.com/
+  graphqlEndpoint: /graphql
+  #locale: en
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+graphql:
+  replicas: 1
+  reloaderImage:
+    repository: busybox
+    pullPolicy: IfNotPresent
+    tag: 1.31
+  image:
+    repository: infuseai/primehub-console-graphql
+    tag: latest
+    # pullPolicy: IfNotPresent
+    # credentials:
+    #   registry: registry.gitlab.com
+    #   username:
+    #   password:
+  sharedGraphqlSecret:
+  #playgroundEnabled: false
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3001
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  probe: {}
+  #  timeoutSeconds: 1
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+watcher:
+  image:
+    repository: infuseai/primehub-console-watcher
+    tag: latest
+    # pullPolicy: IfNotPresent
+    # credentials:
+    #   registry: registry.gitlab.com
+    #   username:
+    #   password:
+  resources:
+    limits:
+      cpu: 50m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+# Admisson
+admission:
+  enabled: true
+  image:
+    repository: infuseai/primehub-admission
+    tag: "6162f37732"
+    pullPolicy: IfNotPresent
+  podImageReplacing:
+    imagePrefix: "primehub.airgap:5000/"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 256Mi
+    requests:
+      cpu: 128m
+      memory: 128Mi
+  postHook:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+# Bootstrap
+bootstrap:
+  enabled: true
+  image:
+    repository: infuseai/primehub-bootstrap
+    tag: "20191022"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  username: phadmin
+  password:
+  group: phusers
+
+# Dataset upload
+datasetUpload:
+  enabled: true
+  interface:
+    replicas: 1
+    webFrontEndImage:
+      repository: infuseai/dataset-upload-web-front-end
+      tag: d744507a5e
+      pullPolicy: IfNotPresent
+      resources:
+        limits:
+          cpu: 200m
+          memory: 256Mi
+        requests:
+          cpu: 200m
+          memory: 256Mi
+    tusd:
+      resources:
+        limits:
+          cpu: 200m
+          memory: 128Mi
+        requests:
+          cpu: 200m
+          memory: 128Mi
+
+tusd:
+  replicas: 1
+  image:
+    repository: tusproject/tusd
+    tag: v1.4.0
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 200m
+      memory: 128Mi
+
+# Jupyterhub
+jupyterhub:
+  enabled: true
+
+  hub:
+    # Maximum number of consecutive failures to allow before shutting down JupyterHub.
+    consecutiveFailureLimit: 0
+    extraEnv:
+      - name: KC_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: primehub-client-jupyterhub
+            key: client_secret
+      - name: GRAPHQL_SHARED_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: primehub-graphql-shared-secret
+            key: sharedSecret
+    extraContainers: []
+    extraVolumes:
+      - name: primehub-hub-images
+        configMap:
+          name: primehub-hub-images
+      - name: primehub-hub-js
+        configMap:
+          name: primehub-hub-js
+      - name: primehub-hub-css
+        configMap:
+          name: primehub-hub-css
+      - name: primehub-hub-templates
+        configMap:
+          name: primehub-hub-templates
+      - name: primehub-hub-config
+        configMap:
+          name: primehub-hub-config
+    extraVolumeMounts:
+      - name: primehub-hub-images
+        mountPath: /usr/local/share/jupyterhub/static/images
+        readOnly: true
+      - name: primehub-hub-js
+        mountPath: /usr/local/share/jupyterhub/static/components/primehub
+        readOnly: true
+      - name: primehub-hub-css
+        mountPath: /usr/local/share/jupyterhub/static/css/primehub
+        readOnly: true
+      - name: primehub-hub-templates
+        mountPath: /etc/jupyterhub/templates
+        readOnly: true
+      - name: primehub-hub-config
+        mountPath: /srv/primehub
+        readOnly: true
+    image:
+      name: jupyterhub/k8s-hub
+      tag: '0.10.6'
+    networkPolicy:
+      enabled: true
+    extraConfig:
+      primehub_config_main.py: |
+        exec(open("/srv/primehub/primehub_config.py").read())
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+    containerSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: true
+
+  proxy:
+    https:
+      enabled: false
+    service:
+      type: ClusterIP
+      # this is required for switching from the default LoadBalancer install
+      nodePorts:
+        http: "null"
+        https: "null"
+    chp:
+      resources:
+        limits:
+          cpu: 200m
+          memory: 512Mi
+        requests:
+          cpu: 200m
+          memory: 512Mi
+  auth:
+    state:
+      enabled: true
+    type: custom
+    custom:
+      className: OIDCAuthenticator
+
+  singleuser:
+    uid: 0
+    fsGid: null
+    cloudMetadata:
+      enabled: true
+    events: true
+    networkPolicy:
+      enabled: true
+    extraEnv:
+      JUPYTER_ENABLE_LAB: "yes"
+      CULL_TIMEOUT: "7200"
+      CULL_KERNEL_TIMEOUT: "3600"
+      CULL_INTERVAL: "300"
+      CULL_CONNECTED: "1"
+    nodeSelector:
+      component: singleuser-server
+    image:
+      name: registry.gitlab.com/aiacademy/docker-stacks/aia-notebook
+      tag: latest-cpu
+      pullPolicy: IfNotPresent
+    cmd: null
+    networkTools:
+      image:
+        name: jupyterhub/k8s-network-tools
+        tag: '0.10.6'
+        pullPolicy: ''
+        pullSecrets: []
+    initContainers: []
+    storage:
+      extraVolumes:
+        - name: primehub-examples
+          emptyDir: {}
+        - name: share-memory-device
+          emptyDir:
+            medium: Memory
+      extraVolumeMounts:
+        - name: primehub-examples
+          mountPath: /primehub-examples
+        - name: share-memory-device
+          mountPath: /dev/shm
+
+  # prePuller relates to the hook|continuous-image-puller DaemonsSets
+  prePuller:
+    annotations: {}
+    resources:
+      limits:
+        cpu: 50m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 256Mi
+    extraTolerations: []
+
+    # hook relates to the hook-image-awaiter Job and hook-image-puller DaemonSet
+    hook:
+      enabled: false
+      nodeSelector: {}
+      tolerations: []
+      resources:
+        limits:
+          cpu: 50m
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 256Mi
+    continuous:
+      enabled: false
+
+  scheduling:
+    userScheduler:
+      enabled: false
+      resources:
+        limits:
+          cpu: 50m
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 256Mi
+
+  ingress:
+    enabled: false
+
+  debug:
+    enabled: false
+
+  cull:
+    enabled: false
+
+  primehub:
+    keycloakClientId: jupyterhub
+    scopeRequired: ''
+    startnotebook: {}
+    kernelGateway: false
+    node-affinity-preferred: []
+    node-affinity-required: []
+    pod-affinity-preferred: []
+    pod-affinity-required: []
+    pod-anti-affinity-preferred: []
+    pod-anti-affinity-required: []
+    startNotebookConfigMap: start-notebook-d
+
+    # timeout from spawning to spawned
+    spawnerStartTimeout: 1200
+    # timeout for the http server in a spawned pod (the creating phase in the progress)
+    spawnerHttpTimeout: 30
+
+    # primehub-examples image
+    primehub-examples:
+      repository: infuseai/primehub-examples
+      pullPolicy: IfNotPresent
+      tag: v0.1.0
+
+# Primehub controller
+controller:
+  replicaCount: 1
+
+  image:
+    repository: infuseai/primehub-controller
+    tag: latest
+    # pullPolicy: IfNotPresent
+
+  proxy:
+    image:
+      repository: gcr.io/kubebuilder/kube-rbac-proxy
+      tag: v0.4.1
+
+  service:
+    type: ClusterIP
+    port: 8443
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 20Mi
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+# Image builder
+customImage:
+  #registryEndpoint: https://gcr.io
+  #registryUsername: _json_key
+  #registryPassword: _password_
+  #pushRepoPrefix: gcr.io/_prefix_
+  insecureSkipVerify: false
+  pushSecretName: primehub-controller-custom-image-push-secret
+
+  buildJob:
+    image:
+      repository: quay.io/buildah/stable
+      tag: v1.19.8
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 1500Mi
+      requests:
+        cpu: 500m
+        memory: 100Mi
+
+# Group Volume (shared volume over nfs)
+groupvolume:
+  enabled: true
+  storageClass: null
+  nfs:
+    image:
+      repository: k8s.gcr.io/volume-nfs
+      tag: 0.8
+      pullPolicy: IfNotPresent
+
+# Gitsync Dataset
+gitsync:
+  enabled: true
+  daemonset:
+    delayInit: false
+    image:
+      repository: k8s.gcr.io/git-sync
+      tag: v3.1.3
+      pullPolicy: IfNotPresent
+
+# Telemetry
+telemetry:
+  enabled: true
+
+# PrimeHub App
+app:
+  enabled: true
+
+#                   ____________   ______           __
+#                  / ____/ ____/  / ____/__  ____ _/ /___  __________  _____
+#  ____________   / __/ / __/    / /_  / _ \/ __ `/ __/ / / / ___/ _ \/ ___/  ____________
+# /_____/_____/  / /___/ /___   / __/ /  __/ /_/ / /_/ /_/ / /  /  __(__  )  /_____/_____/
+#               /_____/_____/  /_/    \___/\__,_/\__/\__,_/_/   \___/____/
+
+
+# Job Submission
+jobSubmission:
+  enabled: true
+  workingDirSize: 5Gi
+  defaultActiveDeadlineSeconds: 86400
+  defaultTTLSecondsAfterFinished: 604800
+  jobTTLSeconds: 2592000
+  jobLimit: 4000
+  # Artifact. Require phfs
+  artifact:
+    enabled: true
+    limitSizeMb: 100
+    limitFiles: 1000
+    # how long will the artifact would be removed.
+    retentionSeconds: 604800
+  monitoring:
+    enabled: true
+
+monitoringAgent:
+  image:
+    repository: infuseai/primehub-monitoring-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+
+# Model Deployment
+modelDeployment:
+  enabled: true
+  engineContainer:
+    image:
+      repository: seldonio/seldon-core-executor
+      tag: 1.4.0
+      pullPolicy: IfNotPresent
+  modelStorageInitializer:
+    image:
+      repository: gcr.io/kfserving/storage-initializer
+      tag: v0.4.0
+      pullPolicy: IfNotPresent
+  mlflowModelStorageInitializer:
+    image:
+      repository: infuseai/mlflow-model-downloader
+      tag: v0.1.0
+      pullPolicy: IfNotPresent
+
+# Admin Notebook
+adminNotebook:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: infuseai/primehub-admin-notebook
+    tag: dd029e8112
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 1
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+# Grafana
+grafana:
+  enabled: false
+
+# Keycloak gateway for admin notebook
+keycloakGateway:
+  image:
+    repository: keycloak/keycloak-gatekeeper
+    tag: 6.0.1
+    pullPolicy: IfNotPresent
+
+openshift:
+  scc: false
+
+istio:
+  enabled: false
+  authService:
+    image:
+      repository: infuseai/oidc-authservice
+      tag: 1dc296d
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    service:
+      type: ClusterIP
+      port: 8080
+
+store:
+  enabled: false
+  accessKey: "AKIAIOSFODNN7EXAMPLE"
+  secretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  bucket: "primehub"
+
+  phfs:
+    enabled: true
+  logPersistence:
+    enabled: true
+
+fluentd:
+  enabled: false
+
+  # Buffer configuration: https://docs.fluentd.org/configuration/buffer-section
+  flushAtShutdown: false
+  flushInterval: "3600s"
+  chunkLimitSize: "256m"
+  # S3 Configuratio
+  storeAs: "txt"
+  image:
+    repository: fluent/fluentd-kubernetes-daemonset
+    tag: v1.11-debian-s3-1
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 512m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+minio:
+  ## Set default image, imageTag, and imagePullPolicy. mode is used to indicate the
+  ##
+  image:
+    repository: minio/minio
+    tag: RELEASE.2021-03-04T00-53-13Z
+    pullPolicy: IfNotPresent
+
+  ## Set default image, imageTag, and imagePullPolicy for the `mc` (the minio
+  ## client used to create a default bucket).
+  ##
+  mcImage:
+    repository: minio/mc
+    tag: RELEASE.2021-03-12T03-36-59Z
+    pullPolicy: IfNotPresent
+
+  ## Additional arguments to pass to minio binary
+  extraArgs: []
+
+  ## Enable persistence using Persistent Volume Claims
+  ## ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
+  ##
+  persistence:
+    enabled: true
+    storageClass: null
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  service:
+    type: ClusterIP
+    port: 9000
+
+  imagePullSecrets: []
+
+  ingress:
+    enabled: false
+
+    # annotation for nginx.ingress.kubernetes.io/proxy-body-size: "8192m"
+    maxBodySize: "8192m"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 150m
+      memory: 64Mi
+
+  s3gateway:
+    enabled: false
+    replicas: 1
+    serviceEndpoint: ""
+    accessKey: ""
+    secretKey: ""
+
+  ## Use minio as GCS (Google Cloud Storage) gateway, you should disable data persistence so no volume claim are created.
+  ## https://docs.minio.io/docs/minio-gateway-for-gcs
+  gcsgateway:
+    enabled: false
+    # Number of parallel instances
+    replicas: 1
+    # credential json file of service account key
+    gcsKeyJson: ""
+    # Google cloud project-id
+    projectId: ""
+
+rclone:
+  # use /var/snap/microk8s/common/var/lib/kubelet with microk8s
+  kubeletPath: /var/lib/kubelet
+
+  nodeDriverRegistrar:
+    image:
+      repository: quay.io/k8scsi/csi-node-driver-registrar
+      tag: v1.1.0
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 100m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 16Mi
+
+  rclone:
+    image:
+      repository: infuseai/csi-rclone
+      tag: v1.2.0-13-g9b79578
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 100m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 16Mi
+    tolerations: []
+
+  csiAttacher:
+    image:
+      repository: quay.io/k8scsi/csi-attacher
+      tag: v1.1.1
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 100m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 16Mi
+
+  csiClusterDriverRegistrar:
+    image:
+      repository: quay.io/k8scsi/csi-cluster-driver-registrar
+      tag: v1.0.1
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 100m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 16Mi
+
+sshBastionServer:
+  enabled: true
+  image:
+    repository: mltooling/ssh-proxy
+    tag: 0.1.11
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 2222
+    targetPort: 22
+  ssh:
+    target:
+      matchLabels:
+        app: jupyterhub
+        component: singleuser-server
+        ssh-bastion-server/notebook: "true"
+      publicKeyApiPort: 8080
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  netpol:
+    enabled: true
+    kubeApiPort: 6443
+usage:
+  enabled: true
+  dbUser: postgres
+  dbPassword: mysecretpassword
+
+  initImage:
+    repository: busybox
+    pullPolicy: IfNotPresent
+    tag: 1.31
+
+  image:
+    repository: infuseai/primehub-usage
+    pullPolicy: IfNotPresent
+    tag: v1.0.1
+
+  appResources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 256Mi
+
+  monitorResources:
+    limits:
+      cpu: 150m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+  dbImage:
+    repository: postgres
+    pullPolicy: IfNotPresent
+    tag: 12
+
+  dbResources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 256Mi
+
+  dbStorage: 64Gi
+  dbStorageClass: null
+
+  # cronjob schedule for the report generator
+  schedule: "0 0 * * *"
