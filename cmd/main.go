@@ -6,63 +6,78 @@ import (
 	"io/ioutil"
 )
 
-func visitList(list []interface{}, parent string) {
-	for index, elem := range list {
-		switch value := elem.(type) {
-		case map[interface{}]interface{}:
-			visit(value, fmt.Sprintf("%s[%d]", parent, index), nil)
-		case bool, int, string, nil:
-			fmt.Printf("%s => %v\n", fmt.Sprintf("%s[%d]", parent, index), value)
-		default:
-			fmt.Printf(".??.%v TTT[%T]!\n", value, value)
-		}
-	}
+type FlatternYaml struct {
+	settings map[string]interface{}
+	yaml     map[interface{}]interface{}
 }
 
-func visit(root map[interface{}]interface{}, parent string, content *map[string]interface{}) {
+func (y *FlatternYaml) load(path string) error {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	err = yaml.Unmarshal(data, &y.yaml)
+	if err != nil {
+		return err
+	}
+
+	y.settings = make(map[string]interface{})
+	y.visit(y.yaml, "")
+
+	return nil
+}
+
+func (y *FlatternYaml) visit(root map[interface{}]interface{}, parent string) {
 	for k, v := range root {
 		switch key := k.(type) {
 		case string:
 			switch value := v.(type) {
 			case map[interface{}]interface{}:
 				if parent == "" {
-					visit(value, key, nil)
+					y.visit(value, key)
 				} else {
-					visit(value, fmt.Sprintf("%s.%s", parent, key), nil)
+					y.visit(value, fmt.Sprintf("%s.%s", parent, key))
 				}
 			case bool, int, string, nil:
 				if parent == "" {
-					//*content[key] = value
-					fmt.Printf("%s => %v\n", key, value)
+					y.settings[key] = value
+					//fmt.Printf("%s => %v\n", key, value)
 				} else {
-					fmt.Printf("%s => %v\n", fmt.Sprintf("%s.%s", parent, key), value)
+					y.settings[fmt.Sprintf("%s.%s", parent, key)] = value
+					//fmt.Printf("%s => %v\n", fmt.Sprintf("%s.%s", parent, key), value)
 				}
 			case []interface{}:
-				visitList(value, fmt.Sprintf("%s.%s", parent, key))
+				y.visitList(value, fmt.Sprintf("%s.%s", parent, key))
 			default:
 				fmt.Printf("Unhandled Type %s[%T]\n", key, key)
 			}
 		default:
-			// each type should be the type of string
 			fmt.Printf("Unhandled Type %s[%T]\n", key, key)
 		}
 
 	}
 }
 
-func main() {
-	var content map[interface{}]interface{}
-	data, err := ioutil.ReadFile("examples/values.yaml")
-	var flatternContent map[string]interface{}
-	if err != nil {
-		fmt.Printf("%v", err)
-	} else {
-		err := yaml.Unmarshal(data, &content)
-		if err == nil {
-			visit(content, "", &flatternContent)
-		} else {
-			fmt.Printf("%v", err)
+func (y *FlatternYaml) visitList(list []interface{}, parent string) {
+	for index, elem := range list {
+		switch value := elem.(type) {
+		case map[interface{}]interface{}:
+			y.visit(value, fmt.Sprintf("%s[%d]", parent, index))
+		case bool, int, string, nil:
+			y.settings[fmt.Sprintf("%s[%d]", parent, index)] = value
+		default:
+			fmt.Printf(".??.%v TTT[%T]!\n", value, value)
 		}
-
 	}
+}
+
+func main() {
+
+	y := FlatternYaml{}
+	y.load("examples/values.yaml")
+
+	for k, v := range y.settings {
+		fmt.Printf("%s: %v\n", k, v)
+	}
+
 }
