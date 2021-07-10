@@ -21,4 +21,4 @@ jobs:
         build_flags: "all"
         binary_name: "helm-values"
         ldflags: "-I."
-        extra_files: LICENSE README.md
+        extra_files: LICENSE README.md helm-values
