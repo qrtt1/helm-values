@@ -17,6 +17,6 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
-        project_path: "./cmd"
+        build_command: "make"
         binary_name: "helm-values"
         extra_files: LICENSE README.md
