@@ -78,4 +78,3 @@ func (y *Values) updateSetting(parent string, key string, value interface{}) {
 		y.Settings[fmt.Sprintf("%s.%v", parent, key)] = value
 	}
 }
-
