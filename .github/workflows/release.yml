@@ -11,6 +11,8 @@ jobs:
         goos: [linux, darwin]
         goarch: ["arm64", amd64]
     steps:
+    - name: Show environment
+      run: export
     - uses: actions/checkout@v2
     - uses: wangyoucao577/go-release-action@v1.18
       with:
