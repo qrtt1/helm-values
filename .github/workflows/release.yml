@@ -19,6 +19,6 @@ jobs:
         goarch: ${{ matrix.goarch }}
         build_command: "make"
         build_flags: "all"
-        binary_name: "helm-files"
+        binary_name: "helm-values"
         ldflags: "-I."
         extra_files: LICENSE README.md
