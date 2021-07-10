@@ -1,5 +1,7 @@
 # helm-values
 
+[![Go](https://github.com/qrtt1/friendly-yaml/actions/workflows/go.yml/badge.svg)](https://github.com/qrtt1/friendly-yaml/actions/workflows/go.yml)
+
 ## Extract configurations
 
 List all configuration names in the values file
