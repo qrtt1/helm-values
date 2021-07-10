@@ -1,0 +1,10 @@
+datasetUpload:
+  interface:
+    webFrontEndImage:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 256Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi

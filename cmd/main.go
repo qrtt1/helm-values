@@ -1,83 +1,70 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"gopkg.in/yaml.v2"
-	"io/ioutil"
+	"github.com/c-bata/go-prompt"
+	"github.com/c-bata/go-prompt/completer"
+	"github.com/qrtt1/friendly-yaml/internal/flatyaml"
+	"os"
 )
-
-type FlatternYaml struct {
-	settings map[string]interface{}
-	yaml     map[interface{}]interface{}
-}
-
-func (y *FlatternYaml) load(path string) error {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	err = yaml.Unmarshal(data, &y.yaml)
-	if err != nil {
-		return err
-	}
-
-	y.settings = make(map[string]interface{})
-	y.visit(y.yaml, "")
-
-	return nil
-}
-
-func (y *FlatternYaml) visit(root map[interface{}]interface{}, parent string) {
-	for k, v := range root {
-		switch key := k.(type) {
-		case string:
-			switch value := v.(type) {
-			case map[interface{}]interface{}:
-				if parent == "" {
-					y.visit(value, key)
-				} else {
-					y.visit(value, fmt.Sprintf("%s.%s", parent, key))
-				}
-			case bool, int, string, nil:
-				if parent == "" {
-					y.settings[key] = value
-					//fmt.Printf("%s => %v\n", key, value)
-				} else {
-					y.settings[fmt.Sprintf("%s.%s", parent, key)] = value
-					//fmt.Printf("%s => %v\n", fmt.Sprintf("%s.%s", parent, key), value)
-				}
-			case []interface{}:
-				y.visitList(value, fmt.Sprintf("%s.%s", parent, key))
-			default:
-				fmt.Printf("Unhandled Type %s[%T]\n", key, key)
-			}
-		default:
-			fmt.Printf("Unhandled Type %s[%T]\n", key, key)
-		}
-
-	}
-}
-
-func (y *FlatternYaml) visitList(list []interface{}, parent string) {
-	for index, elem := range list {
-		switch value := elem.(type) {
-		case map[interface{}]interface{}:
-			y.visit(value, fmt.Sprintf("%s[%d]", parent, index))
-		case bool, int, string, nil:
-			y.settings[fmt.Sprintf("%s[%d]", parent, index)] = value
-		default:
-			fmt.Printf(".??.%v TTT[%T]!\n", value, value)
-		}
-	}
-}
 
 func main() {
 
-	y := FlatternYaml{}
-	y.load("examples/values.yaml")
+	filename := flag.String("f", "values.yaml", "the path of a values file")
+	filter := flag.String("e", "", "regular expression filters")
+	showValues := flag.Bool("v", false, "show values")
+	dumpToYaml := flag.Bool("y", false, "dump yaml (it works with the filter)")
+	useShell := flag.Bool("i", false, "interactive shell")
 
-	for k, v := range y.settings {
-		fmt.Printf("%s: %v\n", k, v)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n%s\n", flatyaml.GetVersion())
 	}
 
+	flag.Parse()
+
+	_, err := os.Stat(*filename)
+	if err != nil {
+		flag.Usage()
+		return
+	}
+
+	y := flatyaml.Values{}
+	y.Load(*filename)
+
+	shell := flatyaml.NewShell(y)
+	if *useShell {
+		runShell(y, shell)
+		return
+	}
+
+	if *filter != "" {
+		shell.ApplyFilter(*filter)
+	}
+
+	if *dumpToYaml {
+		shell.CopyToBuffer(shell.CurrentFilter)
+		shell.DumpToYaml()
+	} else {
+		shell.ShowConfigurations(*showValues, shell.CurrentFilter)
+	}
+
+	os.Exit(0)
+
+}
+
+func runShell(y flatyaml.Values, shell *flatyaml.Executor) {
+	shell.ShowHelp()
+
+	p := prompt.New(
+		shell.Executor,
+		shell.Complete,
+		prompt.OptionTitle("helm-values: interactive helm values shell"),
+		prompt.OptionPrefix(">>> "),
+		prompt.OptionInputTextColor(prompt.Yellow),
+		prompt.OptionCompletionWordSeparator(completer.FilePathCompletionSeparator),
+	)
+	p.Run()
 }
