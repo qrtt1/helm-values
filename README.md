@@ -2,7 +2,17 @@
 
 [![Go](https://github.com/qrtt1/friendly-yaml/actions/workflows/go.yml/badge.svg)](https://github.com/qrtt1/friendly-yaml/actions/workflows/go.yml)
 
-## Extract configurations
+## Shell
+
+Use `-i` to run the shell
+
+```
+helm-values -f values.yaml -i
+```
+
+[![asciicast](https://asciinema.org/a/hNsY5wpaQwnT5x1sLf8CR8A09.svg)](https://asciinema.org/a/hNsY5wpaQwnT5x1sLf8CR8A09)
+
+## Command Line Examples
 
 List all configuration names in the values file
 
