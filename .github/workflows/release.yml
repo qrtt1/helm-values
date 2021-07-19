@@ -14,10 +14,11 @@ jobs:
     - name: Show environment
       run: export
     - uses: actions/checkout@v2
-    - uses: wangyoucao577/go-release-action@v1.18
+    - uses: wangyoucao577/go-release-action@feature/build-phase
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
         build_command: "make all"
-        extra_files: LICENSE README.md helm-values
+        binary_name: "helm-values"
+        extra_files: LICENSE README.md
